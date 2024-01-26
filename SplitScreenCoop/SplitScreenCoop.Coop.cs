@@ -16,10 +16,13 @@ namespace SplitScreenCoop
 
         public void CoopUpdate(RainWorldGame game)
         {
-            UpdatePlayerFood(game);
+            if (selfSufficientCoop)
+            {
+                UpdatePlayerFood(game);
 
-            coopActualGameover = false;
-            UpdateCoopGameover(game);
+                coopActualGameover = false;
+                UpdateCoopGameover(game);
+            }
 
             sheltersClose = false;
             if (SheltersCanClose(game))
@@ -69,8 +72,11 @@ namespace SplitScreenCoop
         /// </summary>
         public void ShelterDoor_Close(On.ShelterDoor.orig_Close orig, ShelterDoor self)
         {
-            if (selfSufficientCoop && !sheltersClose) return;
+            if ((allowSeperateShelters || selfSufficientCoop) && !sheltersClose) return;
             orig(self);
+            
+            if(playerToInfo.Count > 0) playerToInfo.Clear();
+            if(cameraToInfo.Count > 0) cameraToInfo.Clear();
         }
 
         public void CloseShelters(RainWorldGame game)
@@ -176,6 +182,8 @@ namespace SplitScreenCoop
                 
                 c.Emit<SplitScreenCoop>(OpCodes.Ldsfld, "selfSufficientCoop");
                 c.Emit(OpCodes.Brtrue, end);
+                // c.Emit<SplitScreenCoop>(OpCodes.Ldsfld, "allowSeperateShelters");
+                // c.Emit(OpCodes.Brtrue, end);
 
                 c.Goto(end.Target);
                 c.MoveAfterLabels();
@@ -193,7 +201,7 @@ namespace SplitScreenCoop
         // Jesus fucking christ why can't the game code be like this
         public void ShelterUpdate(Player self)
         {
-            if (!selfSufficientCoop) return;
+            if (!(selfSufficientCoop || allowSeperateShelters)) return;
             if (self.room.abstractRoom.shelter && self.AI == null && self.room.game.IsStorySession && !self.dead && !self.Sleeping && self.room.shelterDoor != null && !self.room.shelterDoor.Broken)
             {
                 if (PlayerCanSleep(self))
@@ -244,6 +252,8 @@ namespace SplitScreenCoop
                     );
                 c.Emit<SplitScreenCoop>(OpCodes.Ldsfld, "selfSufficientCoop");
                 c.Emit(OpCodes.Brtrue, skip);
+                // c.Emit<SplitScreenCoop>(OpCodes.Ldsfld, "allowSeperateShelters");
+                // c.Emit(OpCodes.Brtrue, skip);
             }
             catch (Exception e)
             {
@@ -254,7 +264,7 @@ namespace SplitScreenCoop
 
         public void ShelterDoor_DoorClosed(On.ShelterDoor.orig_DoorClosed orig, ShelterDoor self)
         {
-            if (selfSufficientCoop)
+            if (selfSufficientCoop || allowSeperateShelters)
             {
                 if(self.room.game.manager.upcomingProcess == null)
                 {

@@ -5,6 +5,7 @@ using MonoMod.Cil;
 using Mono.Cecil.Cil;
 using HUD;
 using System.Collections.Generic;
+using MoreSlugcats;
 
 namespace SplitScreenCoop
 {
@@ -233,5 +234,464 @@ namespace SplitScreenCoop
             orig(self);
             self.standStillOnMapButton = true;
         }
+        
+        /// <summary>
+        /// Code below is used to send TextPrompts and Dialog messages to the other players hud's due to being different screens
+        /// </summary>
+        //--
+        
+        private bool textPromptLock;
+
+        private void TextPrompt_AddMessage(On.HUD.TextPrompt.orig_AddMessage_string_int_int_bool_bool orig, TextPrompt self, string text, int wait, int time, bool darken, bool hideHud)
+        {
+            try
+            {
+                if (textPromptLock)
+                {
+                    orig(self, text, wait, time, darken, hideHud);
+                }
+                else
+                {
+                    textPromptLock = true;
+
+                    orig(self, text, wait, time, darken, hideHud);
+                    
+                    AttemptCallOnTextPrompt(prompt => prompt.AddMessage(text, wait, time, darken, hideHud), self);
+
+                    textPromptLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send TextPrompt Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+            
+        }
+        
+        private void TextPrompt_AddMessageWithList(On.HUD.TextPrompt.orig_AddMessage_string_int_int_bool_bool_float_List1 orig, TextPrompt self, string text,
+            int wait,
+            int time,
+            bool darken,
+            bool hideHud,
+            float iconsX,
+            List<MultiplayerUnlocks.SandboxUnlockID> iconIDs)
+        {
+            try
+            {
+                if (textPromptLock)
+                {
+                    orig(self, text, wait, time, darken, hideHud, iconsX, iconIDs);
+                }
+                else
+                {
+                    textPromptLock = true;
+                    
+                    orig(self, text, wait, time, darken, hideHud, iconsX, iconIDs);
+                    
+                    AttemptCallOnTextPrompt(
+                        prompt => prompt.AddMessage(text, wait, time, darken, hideHud, iconsX, iconIDs.ToList()), self);
+                    
+                    textPromptLock = false;
+                }
+
+                
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send TextPrompt Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        private void TextPrompt_AddMusic(On.HUD.TextPrompt.orig_AddMusicMessage orig, TextPrompt self, string text, int time)
+        {
+            try
+            {
+                if (textPromptLock)
+                {
+                    orig(self, text, time);
+                }
+                else
+                {
+                    textPromptLock = true;
+                    
+                    orig(self, text, time);
+            
+                    AttemptCallOnTextPrompt(prompt => prompt.AddMusicMessage(text, time), self);
+                    
+                    textPromptLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send TextPrompt Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+
+        private void AttemptCallOnTextPrompt(Action<TextPrompt> action, TextPrompt prime)
+        {
+            try
+            {
+                if (prime.hud.owner is Player player && player.playerState != null &&
+                    player.playerState.playerNumber == 0)
+                {
+                    if (player.abstractCreature == null || player.abstractCreature.world == null ||
+                        player.abstractCreature.world.game == null ||
+                        player.abstractCreature.world.game.cameras == null) return;
+
+                    var cameras = player.abstractCreature.world.game.cameras;
+
+                    for (var i = 1; i < cameras.Length; i++)
+                    {
+                        var cameraHud = cameras[i].hud;
+
+                        if (cameraHud == null) continue;
+
+                        var prompt = cameraHud.textPrompt;
+
+                        if (prime.hud != cameraHud)
+                        {
+                            action(prompt);
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send TextPrompt Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        //--
+
+        private bool messageLock;
+
+        private void DialogBox_Interrupt(On.HUD.DialogBox.orig_Interrupt orig, DialogBox self, string text, int extraLinger)
+        {
+            try
+            {
+                if (messageLock)
+                {
+                    orig(self, text, extraLinger);
+                }
+                else
+                {
+                    messageLock = true;
+                
+                    orig(self, text, extraLinger);
+                
+                    AttemptCallOnDialogBox(box => box.Interrupt(text, extraLinger), self);
+                
+                    messageLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send Dialog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        private void DialogBox_NewMessage(On.HUD.DialogBox.orig_NewMessage_string_int orig, DialogBox self, string text, int extraLinger)
+        {
+            try {
+                if (messageLock)
+                {
+                    orig(self, text, extraLinger);
+                }
+                else
+                {
+                    messageLock = true;
+                
+                    orig(self, text, extraLinger);
+                
+                    AttemptCallOnDialogBox(box => box.NewMessage(text, extraLinger), self);
+                
+                    messageLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send Dialog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        private void DialogBox_NewMessageOrintate(On.HUD.DialogBox.orig_NewMessage_string_float_float_int orig, DialogBox self, string text, float xOrientation, float yPos, int extraLinger)
+        {
+            try {
+                if (messageLock)
+                {
+                    orig(self, text, xOrientation, yPos, extraLinger);
+                }
+                else
+                {
+                    messageLock = true;
+                
+                    orig(self, text, xOrientation, yPos, extraLinger);
+                
+                    AttemptCallOnDialogBox(box => box.NewMessage(text, xOrientation, yPos, extraLinger), self);
+                
+                    messageLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send Dialog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        private void AttemptCallOnDialogBox(Action<DialogBox> action, DialogBox prime)
+        {
+            try
+            {
+                if (prime.hud.owner is Player player && player.playerState != null &&
+                    player.playerState.playerNumber == 0)
+                {
+                    if (player.abstractCreature == null || player.abstractCreature.world == null ||
+                        player.abstractCreature.world.game == null ||
+                        player.abstractCreature.world.game.cameras == null) return;
+
+                    var cameras = player.abstractCreature.world.game.cameras;
+
+                    for (var i = 1; i < cameras.Length; i++)
+                    {
+                        var cameraHud = cameras[i].hud;
+
+                        if (cameraHud == null) continue;
+
+                        var dialogBox = cameraHud.dialogBox;
+
+                        if (dialogBox == null)
+                        {
+                            dialogBox = cameraHud.InitDialogBox();
+                        }
+
+                        if (prime.hud != cameraHud)
+                        {
+                            action(dialogBox);
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send Dialog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        
+        //InitChatLog
+        //DisposeChatLog
+        
+        private bool chatLogLock;
+        
+        private ChatLogDisplay HUD_InitChatLog(On.HUD.HUD.orig_InitChatLog orig, HUD.HUD self, string[] messages)
+        {
+            try {
+                if (chatLogLock)
+                {
+                    return orig(self, messages);
+                }
+                else
+                {
+                    chatLogLock = true;
+                
+                    var display = orig(self, messages);
+                
+                    if (self.owner is Player player && player.playerState != null &&
+                        player.playerState.playerNumber == 0)
+                    {
+                        if (player.abstractCreature != null && player.abstractCreature.world != null &&
+                            player.abstractCreature.world.game != null &&
+                            player.abstractCreature.world.game.cameras != null)
+                        {
+                            var cameras = player.abstractCreature.world.game.cameras;
+
+                            for (var i = 1; i < cameras.Length; i++)
+                            {
+                                var cameraHud = cameras[i].hud;
+
+                                if (cameraHud == null) continue;
+
+                                var chatLog = cameraHud.chatLog;
+
+                                if (chatLog == null && self != cameraHud)
+                                {
+                                    cameraHud.InitChatLog(messages.ToArray());
+                                }
+                            }
+                        }
+                    }
+                
+                    chatLogLock = false;
+
+                    return display;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send ChatLog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+
+            return orig(self, messages);
+        }
+        
+        private void HUD_DisposeChatLog(On.HUD.HUD.orig_DisposeChatLog orig, HUD.HUD self)
+        {
+            try {
+                if (chatLogLock)
+                {
+                    orig(self);
+                }
+                else
+                {
+                    chatLogLock = true;
+                
+                    orig(self);
+                
+                    if (self.owner is Player player && player.playerState != null &&
+                        player.playerState.playerNumber == 0)
+                    {
+                        if (player.abstractCreature == null || player.abstractCreature.world == null ||
+                            player.abstractCreature.world.game == null ||
+                            player.abstractCreature.world.game.cameras == null) return;
+
+                        var cameras = player.abstractCreature.world.game.cameras;
+
+                        for (var i = 1; i < cameras.Length; i++)
+                        {
+                            var cameraHud = cameras[i].hud;
+
+                            if (cameraHud == null) continue;
+
+                            if (self != cameraHud)
+                            {
+                                cameraHud.DisposeChatLog();
+                            }
+                        }
+                    }
+                
+                    chatLogLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send ChatLog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        private void ChatLogDisplay_NewMessage(On.MoreSlugcats.ChatLogDisplay.orig_NewMessage_string_int orig, ChatLogDisplay self, string text, int extraLinger)
+        {
+            try {
+                if (chatLogLock)
+                {
+                    orig(self, text, extraLinger);
+                }
+                else
+                {
+                    chatLogLock = true;
+                
+                    orig(self, text, extraLinger);
+                
+                    AttemptCallOnChatLogDisplay(box => box.NewMessage(text, extraLinger), self);
+                
+                    chatLogLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send ChatLog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        private void ChatLogDisplay_NewMessageOrintate(On.MoreSlugcats.ChatLogDisplay.orig_NewMessage_string_float_float_int orig, ChatLogDisplay self, string text, float xOrientation, float yPos, int extraLinger)
+        {
+            try {
+                if (chatLogLock)
+                {
+                    orig(self, text, xOrientation, yPos, extraLinger);
+                }
+                else
+                {
+                    chatLogLock = true;
+                
+                    orig(self, text, xOrientation, yPos, extraLinger);
+                
+                    AttemptCallOnChatLogDisplay(box => box.NewMessage(text, xOrientation, yPos, extraLinger), self);
+                
+                    chatLogLock = false;
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send ChatLog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        private void AttemptCallOnChatLogDisplay(Action<ChatLogDisplay> action, ChatLogDisplay prime)
+        {
+            try
+            {
+                if (prime.hud.owner is Player player && player.playerState != null &&
+                    player.playerState.playerNumber == 0)
+                {
+                    if (player.abstractCreature == null || player.abstractCreature.world == null ||
+                        player.abstractCreature.world.game == null ||
+                        player.abstractCreature.world.game.cameras == null) return;
+
+                    var cameras = player.abstractCreature.world.game.cameras;
+
+                    for (var i = 1; i < cameras.Length; i++)
+                    {
+                        var cameraHud = cameras[i].hud;
+
+                        if (cameraHud == null) continue;
+
+                        var chatLog = cameraHud.chatLog;
+
+                        if (chatLog == null)
+                        {
+                            chatLog = cameraHud.InitChatLog(new string[0]);
+                        }
+
+                        if (prime.hud != cameraHud)
+                        {
+                            action(chatLog);
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.LogError("Unable to attempt to send Dialog Messsage!!");
+                Logger.LogError(e.Message);
+                Logger.LogError(e.StackTrace);
+            }
+        }
+        
+        
+        //--
     }
 }

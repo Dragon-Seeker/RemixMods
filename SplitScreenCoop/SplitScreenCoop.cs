@@ -65,7 +65,9 @@ namespace SplitScreenCoop
         public static SplitMode preferedSplitMode = SplitMode.SplitVertical;
         public static bool alwaysSplit;
         public static bool allowCameraSwapping;
-        public static bool dualDisplays;
+
+        public static int displayCount = 1;
+        public static bool addRealizerPerPlayer = false;
 
         public static Camera[] fcameras = new Camera[4];
         public static CameraListener[] cameraListeners = new CameraListener[4];
@@ -81,11 +83,16 @@ namespace SplitScreenCoop
         public static Vector2[] camOffsets = new Vector2[] { new Vector2(0, 0), new Vector2(32000, 0), new Vector2(0, 32000), new Vector2(32000, 32000) }; // one can dream
 
         public static int curCamera = -1;
+
+        public static List<RoomRealizer> realizers = new List<RoomRealizer>(3);
         public static RoomRealizer realizer2;
 
         public bool init;
         public static ManualLogSource sLogger;
+        
         public static bool selfSufficientCoop;
+        public static bool allowSeperateShelters;
+        
         public static bool[] cameraZoomed = new bool[] { false, false, false, false };
         public static Rect[] cameraSourcePositions = new Rect[] { new Rect(0.25f, 0.25f, 0.5f, 0.5f), new Rect(0.25f, 0.25f, 0.5f, 0.5f), new Rect(0.25f, 0.25f, 0.5f, 0.5f), new Rect(0.25f, 0.25f, 0.5f, 0.5f) };
         public static Rect[] cameraTargetPositions = new Rect[] { new Rect(0f, 0.5f, 0.5f, 0.5f), new Rect(0.5f, 0.5f, 0.5f, 0.5f), new Rect(0f, 0f, 0.5f, 0.5f), new Rect(0.5f, 0f, 0.5f, 0.5f) };
@@ -198,6 +205,24 @@ namespace SplitScreenCoop
                 new Hook(typeof(Shader).GetMethod("SetGlobalTexture", new Type[] { typeof(string), typeof(Texture) }),
                     typeof(SplitScreenCoop).GetMethod("Shader_SetGlobalTexture"), this);
 
+                //--
+
+                On.HUD.TextPrompt.AddMessage_string_int_int_bool_bool += TextPrompt_AddMessage;
+                On.HUD.TextPrompt.AddMessage_string_int_int_bool_bool_float_List1 += TextPrompt_AddMessageWithList;
+                On.HUD.TextPrompt.AddMusicMessage += TextPrompt_AddMusic;
+                
+                On.HUD.DialogBox.Interrupt += DialogBox_Interrupt;
+                On.HUD.DialogBox.NewMessage_string_int += DialogBox_NewMessage;
+                On.HUD.DialogBox.NewMessage_string_float_float_int += DialogBox_NewMessageOrintate;
+
+                On.HUD.HUD.InitChatLog += HUD_InitChatLog;
+                On.HUD.HUD.DisposeChatLog += HUD_DisposeChatLog;
+
+                On.MoreSlugcats.ChatLogDisplay.NewMessage_string_int += ChatLogDisplay_NewMessage;
+                On.MoreSlugcats.ChatLogDisplay.NewMessage_string_float_float_int += ChatLogDisplay_NewMessageOrintate;
+                
+                //--
+                
                 Logger.LogInfo("OnModsInit done");
 
             }
@@ -249,34 +274,47 @@ namespace SplitScreenCoop
         public void ReadSettings()
         {
             preferedSplitMode = Options.PreferredSplitMode.Value;
-            dualDisplays = Options.DualDisplays.Value;
+            displayCount = Options.AdditionalDisplayCount.Value + 1;
             alwaysSplit = Options.AlwaysSplit.Value;
             allowCameraSwapping = Options.AllowCameraSwapping.Value;
+            addRealizerPerPlayer = Options.AddRealizerPerPlayer.Value;
+            allowSeperateShelters = Options.TestSomething.Value;
 
-            if (dualDisplays && DualDisplaySupported())
+            if (displayCount > 1)
             {
-                InitSecondDisplay();
+                for (int i = 1; i < displayCount; i++)
+                {
+                    InitDisplay(i);
+                }
+                
                 preferedSplitMode = SplitMode.NoSplit;
                 alwaysSplit = false;
             }
             else
             {
-                cameraListeners[1]?.BindToDisplay(Display.main);
-                dualDisplays = false;
+                for (int i = 1; i < cameraListeners.Length; i++)
+                {
+                    cameraListeners[i]?.BindToDisplay(Display.main);
+                }
             }
         }
 
-        public static bool DualDisplaySupported()
+        public static bool MultipleDisplayMode()
         {
-            return Display.displays.Length >= 2;
+            return displayCount > 1;
         }
 
-        public static void InitSecondDisplay()
+        public static int AllowedAdditionalDisplayCount()
         {
-            if (!Display.displays[1].active)
-                Display.displays[1].Activate();
-            cameraListeners[1].BindToDisplay(Display.displays[1]);
-            cameraListeners[1].mirrorMain = true;
+            return Display.displays.Length - 1;
+        }
+
+        public void InitDisplay(int display)
+        {
+            if (!Display.displays[display].active) Display.displays[display].Activate();
+            
+            cameraListeners[display].BindToDisplay(Display.displays[display]);
+            cameraListeners[display].mirrorMain = true;
         }
         
         /// <summary>
@@ -400,11 +438,17 @@ namespace SplitScreenCoop
                 c.EmitDelegate<Action<RainWorldGame>>((self) =>
                 {
                     Logger.LogInfo("RainWorldGame_ctor1 hookpoint");
-                    if (self.IsStorySession && self.session.Players.Count > 1 && (preferedSplitMode != SplitMode.NoSplit || dualDisplays))
+                    if (self.IsStorySession && self.session.Players.Count > 1 && (preferedSplitMode != SplitMode.NoSplit || MultipleDisplayMode()))
                     {
                         Logger.LogInfo("RainWorldGame_ctor1 creating roomcamera2");
                         var cams = self.cameras;
-                        int ncams = preferedSplitMode == SplitMode.Split4Screen ? 4 : 2;
+
+                        int ncams;
+                        
+                        if (preferedSplitMode == SplitMode.Split4Screen) ncams = 4;
+                        else if (displayCount > 1) ncams = displayCount;
+                        else ncams = 2;
+                        
                         Array.Resize(ref cams, ncams);
                         self.cameras = cams;
                         for(int i = 1; i < ncams; i++)
@@ -437,6 +481,8 @@ namespace SplitScreenCoop
             }
 
             realizer2 = null;
+            realizers.Clear();
+            
             CurrentSplitMode = SplitMode.NoSplit;
 
             orig(self, manager);
@@ -481,11 +527,22 @@ namespace SplitScreenCoop
         {
             Logger.LogInfo("RainWorldGame_ShutDownProcess cleanups");
             SetSplitMode(SplitMode.NoSplit, self);
-            if (dualDisplays && DualDisplaySupported())
+
+            if (displayCount > 1)
             {
-                cameraListeners[1].mirrorMain = true;
+                for (int i = 0; i < cameraListeners.Length; i++)
+                {
+                    if(i > (displayCount - 1)) continue;
+
+                    var cameraListener = cameraListeners[i];
+
+                    cameraListener.mirrorMain = true;
+                }
             }
+            
             realizer2 = null;
+            realizers.Clear();
+            
             orig(self);
         }
 
@@ -538,6 +595,9 @@ namespace SplitScreenCoop
                     SetSplitMode(SplitMode.NoSplit, self);
                 }
 
+                //TODO: Find if this is needed
+                ConsiderExpanding(self);
+                
                 if (CurrentSplitMode != SplitMode.NoSplit && self.cameras[0].room != null && self.cameras[0].room.abstractRoom.name == "SB_L01") // honestly jolly
                 {
                     ConsiderColapsing(self, false);
@@ -546,17 +606,34 @@ namespace SplitScreenCoop
 
             if(self.Players.Count > 1)
             {
-                if (realizer2 != null)
+                if (addRealizerPerPlayer)
                 {
-                    realizer2.Update();
+                    if (!realizers.isEmpty())
+                    {
+                        for (var i = 0; i < realizers.Count; i++)
+                        {
+                            realizers[i].Update();
+                        }
+                    }
+                    else
+                    {
+                        if (self.roomRealizer?.followCreature != null) MakeRealizers(self);
+                    }
                 }
                 else
                 {
-                    if (self.roomRealizer?.followCreature != null) MakeRealizer2(self);
+                    if (realizer2 != null)
+                    {
+                        realizer2.Update();
+                    }
+                    else
+                    {
+                        if (self.roomRealizer?.followCreature != null) MakeRealizer2(self);
+                    }
                 }
             }
 
-            if (selfSufficientCoop)
+            if (selfSufficientCoop || allowSeperateShelters)
             {
                 CoopUpdate(self);
             }
@@ -575,12 +652,22 @@ namespace SplitScreenCoop
                 for(int i = 0; i < game.cameras.Length; i++)
                     OffsetHud(game.cameras[i]);
 
-                if (dualDisplays)
+                if(displayCount > 1)
                 {
-                    cameraListeners[0].direct = true;
-                    cameraListeners[1].fcamera.enabled = true;
-                    cameraListeners[1].mirrorMain = false;
-                    cameraListeners[1].direct = true;
+                    for (int i = 0; i < cameraListeners.Length; i++)
+                    {
+                        if(i > (displayCount - 1)) continue;
+
+                        var cameraListener = cameraListeners[i];
+                        
+                        if (i > 0)
+                        {
+                            cameraListener.fcamera.enabled = true;
+                            cameraListener.mirrorMain = false;
+                        }
+                        
+                        cameraListener.direct = true;
+                    }
                 }
                 else
                 {
@@ -642,9 +729,14 @@ namespace SplitScreenCoop
         /// </summary>
         public bool IsCreatureDead(AbstractCreature critter)
         {
-            return (critter?.state?.dead ?? true) || (critter?.realizedCreature?.slatedForDeletetion ?? true);
+            return critter == null || (critter.state?.dead ?? true) || (critter.realizedCreature?.slatedForDeletetion ?? true);
         }
 
+        public record struct ReturnCameraInfo(int CameraIndex, int ToPlayer);
+
+        public static readonly Dictionary<int, List<ReturnCameraInfo>> playerToInfo = new();
+        public static readonly Dictionary<int, List<ReturnCameraInfo>> cameraToInfo = new();
+        
         /// <summary>
         /// consider changing camera targets if someones dead or deleted
         /// </summary>
@@ -659,14 +751,97 @@ namespace SplitScreenCoop
                     if (IsCreatureDead(cam.followAbstractCreature))
                     {
                         if (cam.game.Players.ToArray().Reverse().FirstOrDefault(cr => !IsCreatureDead(cr))?.realizedCreature is Player p)
+                        {
+                            if (cam.followAbstractCreature.realizedCreature is Player camPlayer)
+                            {
+                                int toPlayerNum = camPlayer.playerState.playerNumber;
+                                int camNum = cam.cameraNumber;
+
+                                var info = new ReturnCameraInfo(camNum, toPlayerNum);
+                                
+                                playerToInfo.computeIfAbsent(toPlayerNum, () => new()).Add(info);
+                                cameraToInfo.computeIfAbsent(camNum, () => new()).Add(info);
+                            }
+                            
                             AssignCameraToPlayer(cam, p);
+                        }
                         else if (cam.game.cameras.FirstOrDefault(c => !IsCreatureDead(c.followAbstractCreature))?.followAbstractCreature?.realizedCreature is Player pp)
+                        {
+                            if (cam.followAbstractCreature.realizedCreature is Player camPlayer)
+                            {
+                                int toPlayerNum = camPlayer.playerState.playerNumber;
+                                int camNum = cam.cameraNumber;
+
+                                var info = new ReturnCameraInfo(camNum, toPlayerNum);
+                                
+                                playerToInfo.computeIfAbsent(toPlayerNum, () => new()).Add(info);
+                                cameraToInfo.computeIfAbsent(camNum, () => new()).Add(info);
+                            }
+
                             AssignCameraToPlayer(cam, pp);
+                        }
                     }
                 }
             }
         }
 
+        /**
+         * Method used to deal with Returning cameras back to players if they come alive i.e. when revived
+         */
+        public void ConsiderExpanding(RainWorldGame game)
+        {
+            // Check for if the player is alive again and reset the camera back to such player
+            foreach (var abstractCreature in game.Players)
+            {
+                if (IsCreatureDead(abstractCreature) || !(abstractCreature.realizedCreature is Player player)) continue;
+                
+                int playerNum = player.playerState.playerNumber;
+                
+                //Check if any transfer info from Collapsing exists
+                if (!playerToInfo.ContainsKey(playerNum)) continue;
+                
+                foreach (var info in playerToInfo[playerNum])
+                {
+                    var targetCam = game.cameras[info.CameraIndex];
+
+                    //Quick check to see if the Camera about to be transferred back has a player who is only linked to 1 Camera
+                    if (targetCam.followAbstractCreature.realizedCreature is Player camPlayer)
+                    {
+                        int camCount = 0;
+
+                        foreach (var cam in game.cameras)
+                        {
+                            if (cam.followAbstractCreature.realizedCreature is Player player1 && player1.playerState.playerNumber == camPlayer.playerState.playerNumber)
+                            {
+                                camCount++;
+                                
+                                if(camCount > 1) break;
+                            }
+                        }
+                        
+                        // If only 1 camera is bound to the player than disregard transfering back
+                        if(camCount <= 1) continue;
+                    }
+                    //--
+
+                    //Remove any following Return info since primary owner of the camera takes precedence over others
+                    if (targetCam.cameraNumber == player.playerState.playerNumber)
+                    {
+                        foreach (var camBasedInfo in cameraToInfo[targetCam.cameraNumber])
+                        {
+                            playerToInfo[camBasedInfo.ToPlayer].Remove(camBasedInfo);
+                        }
+                    }
+                    //--
+                    
+                    AssignCameraToPlayer(targetCam, player);
+                }
+                
+                //Remove entries that we have dealt with
+                playerToInfo[playerNum].Clear();
+            }
+        }
+        
         /// <summary>
         /// Update camera.follow but also properly switch current room and hud owner
         /// </summary>
@@ -1047,4 +1222,14 @@ namespace SplitScreenCoop
             return _cwt.GetValue(hud, _cwt => new()).cam = cam;
         }
     }
+    
+    public static class DictionaryExtras
+    {
+        public static T computeIfAbsent<K, T>(this Dictionary<K, T> dictionary, K key, Func<T> supplier)
+        {
+            return dictionary.ContainsKey(key) ? dictionary[key] : dictionary[key] = supplier();
+        }
+    }
 }
+
+

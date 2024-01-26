@@ -28,6 +28,33 @@ namespace SplitScreenCoop
             };
         }
 
+        private void MakeRealizers(RainWorldGame self)
+        {
+            realizers.Clear();
+            
+            int maxPlayerCount = self.session.Players.Count;
+            
+            Logger.LogInfo("Attempt to make more Realizer!");
+            
+            if (maxPlayerCount < 2 || self.roomRealizer == null) return;
+
+            var primaryRealizer = self.roomRealizer;
+            
+            for (int i = 1; i < maxPlayerCount; i++)
+            {
+                var player = self.session.Players[i];
+                
+                realizers.Add(new RoomRealizer(player, self.world)
+                {
+                    realizedRooms = primaryRealizer.realizedRooms,
+                    recentlyAbstractedRooms = primaryRealizer.recentlyAbstractedRooms,
+                    realizeNeighborCandidates = primaryRealizer.realizeNeighborCandidates
+                });
+            }
+            
+            Logger.LogInfo("Finished making extra realizers!");
+        }
+
         /// <summary>
         /// Realizer2 in new world
         /// </summary>
@@ -35,7 +62,8 @@ namespace SplitScreenCoop
         {
             ConsiderColapsing(self.game, true);
             orig(self);
-            if (realizer2 != null) MakeRealizer2(self.game);
+            if (!addRealizerPerPlayer && realizer2 != null) MakeRealizer2(self.game);
+            if (addRealizerPerPlayer && !realizers.isEmpty()) MakeRealizers(self.game);
         }
 
         /// <summary>
@@ -62,13 +90,27 @@ namespace SplitScreenCoop
                 c.Emit(OpCodes.Ldarg_0);
                 c.EmitDelegate((RoomRealizer self) =>
                 {
-                    if (self != self.world?.game?.roomRealizer // I'm realizer2
-                    || self.world?.game?.cameras[0].followAbstractCreature == null // or I'd assign null
-                    || (self.followCreature != null && realizer2 != null && self.world.game.cameras[0].followAbstractCreature == realizer2.followCreature) // or I'd reassign to a creature that is followed by re2
-                    )
+                    RainWorldGame game = self.world?.game;
+                    if(self != game?.roomRealizer /* I'm realizer2 */|| game?.cameras[0].followAbstractCreature == null /* or I'd assign null */)return true;
+
+                    if (addRealizerPerPlayer)
                     {
-                        return true; // then don't
+                        for (var i = 0; i < realizers.Count; i++)
+                        {
+                            if (realizerCheck(game, self, realizers[i]))
+                            {
+                                return true;
+                            }
+                        }
                     }
+                    else
+                    {
+                        if (realizerCheck(game, self, realizer2))
+                        {
+                            return true; // then don't
+                        }
+                    }
+                    
                     return false;
                 });
                 c.Emit(OpCodes.Brtrue, skip);
@@ -80,28 +122,73 @@ namespace SplitScreenCoop
             }
         }
 
+        public bool realizerCheck(RainWorldGame game, RoomRealizer self, RoomRealizer other)
+        {
+            return self.followCreature != null && other != null && game.cameras[0].followAbstractCreature == other.followCreature /* or I'd reassign to a creature that is followed by re2 */;
+        }
+
         public bool rrNestedLock;
         /// <summary>
         /// Realizers work together
         /// </summary>
         public bool RoomRealizer_CanAbstractizeRoom(On.RoomRealizer.orig_CanAbstractizeRoom orig, RoomRealizer self, RoomRealizer.RealizedRoomTracker tracker)
         {
-
             var r = orig(self, tracker);
-            if (!rrNestedLock && realizer2 != null) // if other exists, not recursive
+
+            if (!rrNestedLock) // if other exists, not recursive
+            {
+                var game = self?.world?.game;
+                
+                if (addRealizerPerPlayer)
+                {
+                    for (var i = 0; i < realizers.Count(); i++)
+                    {
+                        var otherRealizer = realizers[i];
+
+                        checkOtherRealizerAbstracize(game, self, otherRealizer, tracker, ref r);
+                    }
+                }
+                else if(realizer2 != null)
+                {
+                    checkOtherRealizerAbstracize(game, self, realizer2, tracker, ref r);
+                }
+            }
+
+            /*if (!rrNestedLock && realizer2 != null) // if other exists, not recursive
             {
                 RoomRealizer other;
                 RoomRealizer prime = self?.world?.game?.roomRealizer;
                 if (prime == self) other = realizer2;
                 else other = prime;
+
                 if (other != null && other.followCreature != null)
                 {
                     rrNestedLock = true;
                     r = r && other.CanAbstractizeRoom(tracker);
                     rrNestedLock = false;
                 }
-            }
+            }*/
             return r;
+        }
+
+        public void checkOtherRealizerAbstracize(RainWorldGame game, RoomRealizer self, RoomRealizer other, RoomRealizer.RealizedRoomTracker tracker, ref bool r)
+        {
+            RoomRealizer prime = game.roomRealizer;
+            if (prime != self) other = prime;
+            
+            if (other != null && other.followCreature != null)
+            {
+                rrNestedLock = true;
+                r = r && other.CanAbstractizeRoom(tracker);
+                rrNestedLock = false;
+            }
+        }
+    }
+    
+    static class ListExtension {
+        public static bool isEmpty<T>(this List<T> list)
+        {
+            return list.Count == 0;
         }
     }
 }
