@@ -71,7 +71,7 @@ namespace SplitScreenCoop
 
         public static Camera[] fcameras = new Camera[4];
         public static CameraListener[] cameraListeners = new CameraListener[4];
-        public static List<DisplayExtras> displayExtras = new();
+        public static List<DisplayExtras> displayExtras = new List<DisplayExtras>();
 
         public static Camera camera2;
         public static Camera camera3;
@@ -280,22 +280,30 @@ namespace SplitScreenCoop
             addRealizerPerPlayer = Options.AddRealizerPerPlayer.Value;
             allowSeperateShelters = Options.TestSomething.Value;
 
-            if (displayCount > 1)
+            try
             {
-                for (int i = 1; i < displayCount; i++)
+                if (displayCount > 1)
                 {
-                    InitDisplay(i);
+                    for (int i = 1; i < displayCount; i++)
+                    {
+                        InitDisplay(i);
+                    }
+
+                    preferedSplitMode = SplitMode.NoSplit;
+                    alwaysSplit = false;
                 }
-                
-                preferedSplitMode = SplitMode.NoSplit;
-                alwaysSplit = false;
+                else
+                {
+                    for (int i = 1; i < cameraListeners.Length; i++)
+                    {
+                        cameraListeners[i]?.BindToDisplay(Display.main);
+                    }
+                }
             }
-            else
+            catch (Exception e)
             {
-                for (int i = 1; i < cameraListeners.Length; i++)
-                {
-                    cameraListeners[i]?.BindToDisplay(Display.main);
-                }
+                Logger.LogError(e);
+                throw;
             }
         }
 
@@ -311,10 +319,18 @@ namespace SplitScreenCoop
 
         public void InitDisplay(int display)
         {
-            if (!Display.displays[display].active) Display.displays[display].Activate();
-            
-            cameraListeners[display].BindToDisplay(Display.displays[display]);
-            cameraListeners[display].mirrorMain = true;
+            try
+            {
+                if (!Display.displays[display].active) Display.displays[display].Activate();
+
+                cameraListeners[display].BindToDisplay(Display.displays[display]);
+                cameraListeners[display].mirrorMain = true;
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(e);
+                throw;
+            }
         }
         
         /// <summary>
@@ -595,9 +611,12 @@ namespace SplitScreenCoop
                     SetSplitMode(SplitMode.NoSplit, self);
                 }
 
-                //TODO: Find if this is needed
-                ConsiderExpanding(self);
-                
+                if (CurrentSplitMode != SplitMode.NoSplit && self.cameras[0].room != null && self.cameras[0].room.abstractRoom.name == "SB_L01") // honestly jolly
+                {
+                    //TODO: Find if this is needed
+                    ConsiderExpanding(self);
+                }
+
                 if (CurrentSplitMode != SplitMode.NoSplit && self.cameras[0].room != null && self.cameras[0].room.abstractRoom.name == "SB_L01") // honestly jolly
                 {
                     ConsiderColapsing(self, false);

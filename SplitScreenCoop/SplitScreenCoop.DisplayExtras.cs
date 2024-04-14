@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -20,32 +21,42 @@ namespace SplitScreenCoop
             public Display display;
             public RenderTexture renderTexture;
             private RawImage rawImage;
+
             public DisplayExtras(Display display)
             {
-                this.display = display;
+                try
+                {
+                    this.display = display;
 
-                int index = Display.displays.IndexOf(display);
-                
-                SplitScreenCoop.sLogger.LogInfo(index);
-                
-                displayExtras.Add(this);
-                if (display == Display.main)
-                {
-                    rawImage = Futile.instance._cameraImage;
+                    int index = Display.displays.IndexOf(display);
+
+                    SplitScreenCoop.sLogger.LogInfo(index);
+
+                    displayExtras.Add(this);
+                    if (display == Display.main)
+                    {
+                        rawImage = Futile.instance._cameraImage;
+                    }
+                    else
+                    {
+                        var canvasHolder = GameObject.Instantiate(Futile.instance._cameraImage.transform.parent.gameObject); // dupe
+                        var dummyCamera = canvasHolder.AddComponent<Camera>(); // its 2023 and unity still has this sort of bugs
+                        dummyCamera.targetDisplay = index == -1 ? 1 : index; //1;
+                        dummyCamera.cullingMask = 0;
+                        var canvas = canvasHolder.GetComponent<Canvas>();
+                        canvas.targetDisplay = index == -1 ? 1 : index; //1;
+                        sLogger.LogInfo(canvas.isActiveAndEnabled);
+                        rawImage = canvasHolder.GetComponentInChildren<RawImage>();
+                    }
+
+                    ReinitRenderTexture();
                 }
-                else
+                catch (Exception e)
                 {
-                    var canvasHolder = GameObject.Instantiate(Futile.instance._cameraImage.transform.parent.gameObject); // dupe
-                    var dummyCamera = canvasHolder.AddComponent<Camera>(); // its 2023 and unity still has this sort of bugs
-                    dummyCamera.targetDisplay = index == -1 ? 1 : index;//1;
-                    dummyCamera.cullingMask = 0;
-                    var canvas = canvasHolder.GetComponent<Canvas>();
-                    canvas.targetDisplay = index == -1 ? 1 : index;//1;
-                    sLogger.LogInfo(canvas.isActiveAndEnabled);
-                    rawImage = canvasHolder.GetComponentInChildren<RawImage>();
+                    sLogger.LogError(e);
+                    throw;
                 }
-                ReinitRenderTexture();
-            }
+        }
 
             public void DiscardRenderTexture()
             {
